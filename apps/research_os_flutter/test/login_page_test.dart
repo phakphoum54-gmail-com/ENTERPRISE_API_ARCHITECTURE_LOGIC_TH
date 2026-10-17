@@ -110,14 +110,18 @@ void main() {
     expect(find.text('8790'), findsNothing);
   });
 
-  testWidgets('login offers retry when provider loading times out', (
+  testWidgets('provider loading timeout exposes a working retry action', (
     tester,
   ) async {
     final pendingResponse = Completer<http.Response>();
+    var requestCount = 0;
     final client = ResearchOSApiClient(
       baseUrl: 'http://research-os.test',
       authRequestTimeout: const Duration(milliseconds: 50),
-      client: MockClient((_) => pendingResponse.future),
+      client: MockClient((_) {
+        requestCount++;
+        return pendingResponse.future;
+      }),
     );
 
     addTearDown(client.close);
@@ -135,13 +139,18 @@ void main() {
     await tester.pump(const Duration(milliseconds: 60));
     await tester.pump();
 
-    await tester.tap(find.text('Login'));
-    await tester.pumpAndSettle();
-
+    expect(requestCount, 1);
     expect(
       find.textContaining('Research OS API request timed out.'),
       findsOneWidget,
     );
+    expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
+
+    await tester.tap(find.text('ลองโหลดอีกครั้ง'));
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump();
+
+    expect(requestCount, 2);
     expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
   });
 }

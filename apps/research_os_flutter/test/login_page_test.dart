@@ -150,5 +150,5 @@ void main() {
 
     expect(requestCount, 2);
     expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
-  });;
+  });
 }

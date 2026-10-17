@@ -7,7 +7,10 @@ try:
 except ModuleNotFoundError:
  from tools.research_os_test_case_inventory import discover as discover_test_cases
 from pathlib import Path
-from tools.research_os_semantic_binding import resolve_semantic_binding
+try:
+ from tools.research_os_semantic_binding import resolve_semantic_binding
+except ModuleNotFoundError:
+ from research_os_semantic_binding import resolve_semantic_binding
 
 ROOT=Path(__file__).resolve().parents[1]
 EXCLUDES={".git",".dart_tool","build","dist","node_modules","__pycache__",".venv","venv"}

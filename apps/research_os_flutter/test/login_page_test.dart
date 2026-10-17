@@ -108,4 +108,50 @@ void main() {
     expect(find.text('8787'), findsNothing);
     expect(find.text('8790'), findsNothing);
   });
+
+
+  testWidgets('provider loading failure can be retried', (tester) async {
+    var requestCount = 0;
+    final client = ResearchOSApiClient(
+      baseUrl: 'http://research-os.test',
+      client: MockClient((_) async {
+        requestCount++;
+        return http.Response(
+          jsonEncode({'detail': 'provider service unavailable'}),
+          503,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    addTearDown(client.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(
+          apiClient: client,
+          connectionProfile: 'research_os',
+          onConnectionChanged: (_) async {},
+          onAuthenticated: () {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(requestCount, 1);
+    expect(
+      find.textContaining('Research OS API error 503'),
+      findsOneWidget,
+    );
+    expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
+
+    final retryButton = find.text('ลองโหลดอีกครั้ง');
+    await tester.ensureVisible(retryButton);
+    await tester.pumpAndSettle();
+    await tester.tap(retryButton);
+    await tester.pumpAndSettle();
+
+    expect(requestCount, 2);
+    expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
+  });
 }

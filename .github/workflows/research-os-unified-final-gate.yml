@@ -142,6 +142,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$TARGET_SHA"
       - name: Build M.2 index
+        id: build_m2
         run: python tools/research_os_m2_audit.py --output m2_audit_index.json --summary m2_audit_index_summary.txt
       - name: Test M.2 index
         run: python -m unittest tools.test_research_os_m2_audit -v
@@ -151,7 +152,7 @@ jobs:
           grep -F "SOURCE_SHA=$TARGET_SHA" m2_audit_index_summary.txt
           grep -F "M2_AUDIT_INDEX=PASS" m2_audit_index_summary.txt
       - name: Upload M.2 evidence
-        if: always()
+        if: ${{ always() && steps.build_m2.outcome == 'success' }}
         uses: actions/upload-artifact@v6
         with:
           name: research-os-m2-audit-${{ env.TARGET_SHA }}

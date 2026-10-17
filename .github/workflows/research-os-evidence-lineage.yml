@@ -35,6 +35,7 @@ jobs:
     env:
       OWNER: ${{ github.repository_owner }}
       REPO: ${{ github.event.repository.name }}
+      PR_REPO: ${{ github.repository }}
       EVENT_NAME: ${{ github.event_name }}
       PR_NUMBER: ${{ inputs.pr_number || '' }}
       BASE_SHA: ${{ inputs.base_sha || '' }}
@@ -70,7 +71,13 @@ jobs:
                   fh.write('applicable=false\n')
               raise SystemExit(0)
 
-          pr = gh(f"/repos/{owner}/{repo}/pulls/{candidates[0]['number']}")
+          candidate = candidates[0]
+          pr_repo = (
+              candidate.get('base', {}).get('repo', {}).get('full_name')
+              or candidate.get('head', {}).get('repo', {}).get('full_name')
+              or f"{owner}/{repo}"
+          )
+          pr = gh(f"/repos/{pr_repo}/pulls/{candidate['number']}")
           base = pr.get('base', {}).get('sha', '')
           head = pr.get('head', {}).get('sha', '')
           merge_from_pr = pr.get('merge_commit_sha', '')
@@ -79,6 +86,7 @@ jobs:
 
           Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8').write(
               f"PR_NUMBER={pr['number']}\n"
+              f"PR_REPO={pr_repo}\n"
               f"BASE_SHA={base}\n"
               f"HEAD_SHA={head}\n"
               f"MERGE_SHA={merge}\n"
@@ -117,6 +125,7 @@ jobs:
 
           owner = os.environ['OWNER']
           repo = os.environ['REPO']
+          pr_repo = os.environ['PR_REPO']
           pr = os.environ['PR_NUMBER']
           expected_head = os.environ['HEAD_SHA']
           token = os.environ['GH_TOKEN']
@@ -134,7 +143,7 @@ jobs:
               ], text=True))
 
           for attempt in range(1, max_polls + 1):
-              pr_data = gh(f'/repos/{owner}/{repo}/pulls/{pr}')
+              pr_data = gh(f'/repos/{pr_repo}/pulls/{pr}')
               actual_head = pr_data.get('head', {}).get('sha', '')
               if actual_head != expected_head:
                   raise SystemExit(
@@ -230,6 +239,7 @@ jobs:
 
           owner = os.environ['OWNER']
           repo = os.environ['REPO']
+          pr_repo = os.environ['PR_REPO']
           pr = os.environ['PR_NUMBER']
           base = os.environ['BASE_SHA']
           head = os.environ['HEAD_SHA']
@@ -249,7 +259,7 @@ jobs:
           def is_ancestor(ancestor, descendant):
               return subprocess.run(['git', 'merge-base', '--is-ancestor', ancestor, descendant], check=False).returncode == 0
 
-          pr_data = gh(f'/repos/{owner}/{repo}/pulls/{pr}')
+          pr_data = gh(f'/repos/{pr_repo}/pulls/{pr}')
           head_data = gh(f'/repos/{owner}/{repo}/commits/{head}')
           merge_data = gh(f'/repos/{owner}/{repo}/commits/{merge}')
           status = gh(f'/repos/{owner}/{repo}/commits/{head}/status')

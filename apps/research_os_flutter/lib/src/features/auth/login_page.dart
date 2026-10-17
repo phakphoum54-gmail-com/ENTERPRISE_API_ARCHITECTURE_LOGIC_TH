@@ -30,6 +30,7 @@ class _LoginPageState extends State<LoginPage> {
   String? _busyProvider;
   String? _message;
   bool _error = false;
+  bool _providerLoadFailed = false;
 
   @override
   void initState() {
@@ -63,12 +64,14 @@ class _LoginPageState extends State<LoginPage> {
       setState(() {
         _providers = providers;
         _loading = false;
+        _providerLoadFailed = false;
       });
     } on Object catch (error) {
       if (!mounted) return;
       setState(() {
         _loading = false;
         _error = true;
+        _providerLoadFailed = true;
         _message = error.toString();
       });
     }
@@ -78,6 +81,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() {
       _loading = true;
       _error = false;
+      _providerLoadFailed = false;
       _message = null;
     });
     _loadProviders();
@@ -426,6 +430,15 @@ class _LoginPageState extends State<LoginPage> {
                             style: TextStyle(
                               color: _error ? scheme.error : scheme.primary,
                             ),
+                          ),
+                        ],
+
+                        if (_providerLoadFailed && !_loading && _busyProvider == null) ...<Widget>[
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: _retryLoadingProviders,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('ลองโหลดอีกครั้ง'),
                           ),
                         ],
 

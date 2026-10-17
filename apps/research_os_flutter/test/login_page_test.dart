@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -107,5 +108,49 @@ void main() {
     expect(find.text('PORT 2'), findsOneWidget);
     expect(find.text('8787'), findsNothing);
     expect(find.text('8790'), findsNothing);
+  });
+
+
+  testWidgets('provider loading timeout can be retried', (tester) async {
+    final pendingResponse = Completer<http.Response>();
+    var requestCount = 0;
+    final client = ResearchOSApiClient(
+      baseUrl: 'http://research-os.test',
+      authRequestTimeout: const Duration(milliseconds: 50),
+      client: MockClient((_) {
+        requestCount++;
+        return pendingResponse.future;
+      }),
+    );
+
+    addTearDown(client.close);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(
+          apiClient: client,
+          connectionProfile: 'research_os',
+          onConnectionChanged: (_) async {},
+          onAuthenticated: () {},
+        ),
+      ),
+    );
+
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump();
+
+    expect(requestCount, 1);
+    expect(
+      find.textContaining('Research OS API request timed out.'),
+      findsOneWidget,
+    );
+    expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
+
+    await tester.tap(find.text('ลองโหลดอีกครั้ง'));
+    await tester.pump(const Duration(milliseconds: 60));
+    await tester.pump();
+
+    expect(requestCount, 2);
+    expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
   });
 }

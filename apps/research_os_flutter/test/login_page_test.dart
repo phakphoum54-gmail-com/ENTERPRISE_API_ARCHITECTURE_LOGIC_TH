@@ -145,7 +145,10 @@ void main() {
     );
     expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
 
-    await tester.tap(find.text('ลองโหลดอีกครั้ง'));
+    final retryButton = find.text('ลองโหลดอีกครั้ง');
+    await tester.ensureVisible(retryButton);
+    await tester.pumpAndSettle();
+    await tester.tap(retryButton);
     await tester.pumpAndSettle();
 
     expect(requestCount, 2);

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -111,15 +110,17 @@ void main() {
   });
 
 
-  testWidgets('provider loading timeout can be retried', (tester) async {
-    final pendingResponse = Completer<http.Response>();
+  testWidgets('provider loading failure can be retried', (tester) async {
     var requestCount = 0;
     final client = ResearchOSApiClient(
       baseUrl: 'http://research-os.test',
-      authRequestTimeout: const Duration(milliseconds: 50),
-      client: MockClient((_) {
+      client: MockClient((_) async {
         requestCount++;
-        return pendingResponse.future;
+        return http.Response(
+          jsonEncode({'detail': 'provider service unavailable'}),
+          503,
+          headers: {'content-type': 'application/json'},
+        );
       }),
     );
 
@@ -135,22 +136,19 @@ void main() {
         ),
       ),
     );
-
-    await tester.pump(const Duration(milliseconds: 60));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(requestCount, 1);
     expect(
-      find.textContaining('Research OS API request timed out.'),
+      find.textContaining('Research OS API error 503'),
       findsOneWidget,
     );
     expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
 
     await tester.tap(find.text('ลองโหลดอีกครั้ง'));
-    await tester.pump(const Duration(milliseconds: 60));
-    await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(requestCount, 2);
     expect(find.text('ลองโหลดอีกครั้ง'), findsOneWidget);
-  });
+  });;
 }

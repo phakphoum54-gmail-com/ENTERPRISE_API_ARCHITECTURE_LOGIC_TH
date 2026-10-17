@@ -15,6 +15,9 @@ import 'features/home/home_page.dart';
 import 'features/library/library_page.dart';
 import 'features/local_api/local_api_control_page.dart';
 import 'features/monitor/system_monitor_page.dart';
+import 'features/owner/owner_experience_page.dart';
+import 'features/workflows/workflow_experience_page.dart';
+import 'features/projects/project_experience_page.dart';
 import 'features/settings/settings_page.dart';
 import 'ui/enterprise_navigation.dart';
 import 'ui/research_os_sidebar_v2.dart';
@@ -42,7 +45,7 @@ class _ResearchOSAppShellState extends State<ResearchOSAppShell> {
   bool _sidebarExpanded = false;
 
   List<Widget> get _pages => <Widget>[
-        HomePage(apiClient: widget.apiClient),
+        HomePage(apiClient: widget.apiClient, onNavigate: _select),
         VoiceConversationPage(apiClient: widget.apiClient),
         AgentCenterPage(apiClient: widget.apiClient),
         LibraryPage(apiClient: widget.apiClient),
@@ -62,7 +65,13 @@ class _ResearchOSAppShellState extends State<ResearchOSAppShell> {
         BrainSkillsPage(apiClient: widget.apiClient),
         GoogleLoginPage(apiClient: widget.apiClient),
         FriendConnectPage(apiClient: widget.apiClient),
-        NativeControlCenterPage(apiClient: widget.apiClient),
+        ProjectExperiencePage(apiClient: widget.apiClient),
+        WorkflowExperiencePage(apiClient: widget.apiClient),
+        NativeControlCenterPage(
+          apiClient: widget.apiClient,
+          onNavigate: _select,
+        ),
+        OwnerExperiencePage(apiClient: widget.apiClient),
       ];
 
   void _select(int index) => setState(() => _selectedIndex = index);
@@ -80,72 +89,36 @@ class _ResearchOSAppShellState extends State<ResearchOSAppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final current = researchNavigationItems
-        .firstWhere((item) => item.index == _selectedIndex);
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        if (constraints.maxWidth >= 920) {
-          return Scaffold(
-            body: SafeArea(
-              child: Row(
+    // The product UI is canonical and shared across Windows, Web and iOS.
+    // Platform runners/shells provide the host boundary; they do not own a
+    // second product UI or navigation surface.
+    return Scaffold(
+      body: SafeArea(
+        child: Row(
+          children: <Widget>[
+            ResearchOSSidebarV2(
+              expanded: _sidebarExpanded,
+              selectedIndex: _selectedIndex,
+              onToggle: _toggleSidebar,
+              onSelected: _selectFromSidebar,
+            ),
+            Expanded(
+              child: Column(
+                key: const Key('desktop-content-pane'),
                 children: <Widget>[
-                  ResearchOSSidebarV2(
-                    expanded: _sidebarExpanded,
-                    selectedIndex: _selectedIndex,
-                    onToggle: _toggleSidebar,
-                    onSelected: _selectFromSidebar,
-                  ),
                   Expanded(
-                    child: Column(
-                      key: const Key('desktop-content-pane'),
-                      children: <Widget>[
-                        Expanded(
-                          child: IndexedStack(
-                            index: _selectedIndex,
-                            children: _pages,
-                          ),
-                        ),
-                        const ResearchStatusBar(),
-                      ],
+                    child: IndexedStack(
+                      index: _selectedIndex,
+                      children: _pages,
                     ),
                   ),
+                  const ResearchStatusBar(),
                 ],
               ),
             ),
-          );
-        }
-
-        return Scaffold(
-          drawer: ResearchMobileDrawer(
-            selectedIndex: _selectedIndex,
-            onSelected: (index) {
-              Navigator.of(context).pop();
-              _select(index);
-            },
-          ),
-          appBar: AppBar(
-            titleSpacing: 0,
-            title: Row(
-              children: <Widget>[
-                const ResearchBrandMark(compact: true),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(current.label, overflow: TextOverflow.ellipsis),
-                ),
-              ],
-            ),
-            actions: <Widget>[
-              IconButton(
-                tooltip: 'System Monitor',
-                onPressed: () => _select(8),
-                icon: const Icon(Icons.monitor_heart_outlined),
-              ),
-            ],
-          ),
-          body: IndexedStack(index: _selectedIndex, children: _pages),
-        );
-      },
+          ],
+        ),
+      ),
     );
   }
 }

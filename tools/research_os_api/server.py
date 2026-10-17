@@ -18,6 +18,8 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 from api_auth import extract_session_token, require_session
+from developer_identity import IdentityAssertionError
+from developer_identity_gateway import mint_developer_assertion
 from auth_session import clear_cookie_header, revoke_session, verify_session
 from conversation_store import (
     authorize as authorize_sync,
@@ -30,13 +32,31 @@ from github_status import GitHubStatusError, dashboard as github_dashboard
 from google_identity import GoogleIdentityBroker
 from google_oauth import GoogleOAuthBroker, GoogleOAuthError
 from google_workspace import GoogleWorkspaceConfig, get_google_workspace_dashboard
+from server_auth_routes import auth_provider_handoff
 from identity_providers import provider_catalog
 from identity_context import resolve_identity_context
 from memory import build_context, search_memory
 from multi_login import MultiLoginError, begin_login
 from multi_login_runtime import MultiLoginRuntimeError, begin_runtime_login, complete_runtime_login
 from oauth_handoff import consume_handoff
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+# The API supports both repository-root module execution and direct execution
+# from tools/research_os_api (the latter is used by the Windows/local launcher).
+# Bootstrap the repository import boundary before importing Platform modules.
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from tools.research_os_api.api_platform.management_http import ManagementHTTP
+from tools.research_os_api.api_platform.management_service import ManagementService
 from providers import ProviderError, build_provider
+from tools.platform_work_checkpoint import (
+    create_checkpoint,
+    list_checkpoints,
+    resume_checkpoint,
+)
+
+from tools.project_registry import ProjectRegistry
+from tools.project_scale_readiness import PROJECT_COUNT, build_project_definitions
 import copilot_service
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +66,19 @@ ARTIFACT_DIR = ROOT / "research" / "artifacts"
 WEB_DIR = ROOT / "apps" / "research_os_web"
 STATIC_ROUTES = {"/": "index.html", "/index.html": "index.html", "/app.css": "app.css", "/app.js": "app.js"}
 DEFAULT_GITHUB_REPOSITORY = "phakphoum38-stack/ENTERPRISE_API_ARCHITECTURE_LOGIC_TH"
+
+_MANAGEMENT_SERVICE: ManagementService | None = None
+
+def _management_http() -> ManagementHTTP:
+    global _MANAGEMENT_SERVICE
+    if _MANAGEMENT_SERVICE is None:
+        _MANAGEMENT_SERVICE = ManagementService.from_env()
+    def authenticate(headers: Any) -> dict[str, Any] | None:
+        try:
+            return require_session(headers)
+        except ValueError:
+            return None
+    return ManagementHTTP(_MANAGEMENT_SERVICE, authenticate)
 
 
 def _load_module(name: str, path: Path):
@@ -80,6 +113,41 @@ def _friend_chat(text: str, *, session_id: str | None = None, complexity: int = 
 
 def _json_bytes(payload: Any) -> bytes:
     return json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def _project_registry_snapshot() -> dict[str, Any]:
+    registry = ProjectRegistry(build_project_definitions(1))
+    projects = [
+        {
+            "project_id": project.project_id,
+            "display_name": project.display_name,
+            "version": project.version,
+            "capabilities": list(project.capabilities),
+            "authorization_policy": project.authorization_policy,
+            "workflow_profile": project.workflow_profile,
+            "evidence_namespace": project.evidence_namespace,
+            "resource_policy": project.resource_policy,
+            "capability_namespace": project.capability_namespace,
+            "queue_namespace": project.queue_namespace,
+            "evidence_ledger": project.evidence_ledger,
+            "release_authority": project.release_authority,
+        }
+        for project in registry.all()
+    ]
+    return {
+        "projects": projects,
+        "configured_count": len(projects),
+        "supported_project_contexts": PROJECT_COUNT,
+        "scale_levels": [10, 20, 50, 100],
+        "shared_planes": {
+            "capability_registry": "SHARED_CAPABILITY_REGISTRY",
+            "queue": "SHARED_QUEUE",
+            "evidence_ledger": "SHARED_EVIDENCE_LEDGER",
+        },
+        "source": "ProjectRegistry",
+        "release_authority": "FINAL_GATE",
+        "execution_authority": "EXISTING_SHARED_EXECUTION_PLANE",
+    }
 
 
 class ResearchOSHandler(BaseHTTPRequestHandler):
@@ -188,6 +256,10 @@ class ResearchOSHandler(BaseHTTPRequestHandler):
         parsed = urlsplit(self.path)
         path = parsed.path
         try:
+            if path.startswith("/platform/v1"):
+                status, payload = _management_http().dispatch("GET", self.path, self.headers)
+                self._send(status, payload)
+                return
             if path in STATIC_ROUTES:
                 self._send_static(STATIC_ROUTES[path])
                 return
@@ -200,8 +272,15 @@ class ResearchOSHandler(BaseHTTPRequestHandler):
                     pass
                 self._send(HTTPStatus.OK, {"status": "ok", "service": "research-os-api", "version": "0.8.0", "ui": WEB_DIR.is_dir(), "memory": True, "memory_commit": sync_configured(), "github": True, "cloud_sync": sync_configured(), "google_workspace": True, "google_workspace_connected": google_workspace_connected})
                 return
+            if path == "/v1/projects":
+                self._send(HTTPStatus.OK, _project_registry_snapshot())
+                return
             if path == "/v1/providers":
                 self._send(HTTPStatus.OK, {"providers": ["mock", "openai-compatible", "local", "anthropic", "gemini"], "active": os.getenv("RESEARCH_OS_PROVIDER", "mock")})
+                return
+            if path == "/v1/ai/connections":
+                from tools.research_os_ai_provider_connection import inspect
+                self._send(HTTPStatus.OK, inspect())
                 return
             if path == "/v1/auth/providers":
                 self._send(HTTPStatus.OK, {"providers": provider_catalog()})
@@ -248,6 +327,21 @@ class ResearchOSHandler(BaseHTTPRequestHandler):
                 email = ((result.get("account") or {}).get("email") or "Google account")
                 self._send_html(HTTPStatus.OK, f"<html><body><h2>Research OS connected to Google Workspace</h2><p>{email}</p><p>You can close this window and return to Research OS.</p></body></html>")
                 return
+            if path == "/v1/platform/work-checkpoints":
+                principal = require_session(self.headers)
+                user_id = str(principal.get("user_id") or "").strip()
+                if not user_id:
+                    raise ValueError("verified session identity is incomplete")
+                params = parse_qs(parsed.query)
+                task_id = str(params.get("task_id", [""])[0]).strip() or None
+                records = list_checkpoints(user_id, task_id)
+                self._send(HTTPStatus.OK, {
+                    "checkpoints": records,
+                    "count": len(records),
+                    "source": "platform-work-checkpoint",
+                    "chat_is_not_source_of_truth": True,
+                })
+                return
             if path == "/v1/conversations/cloud":
                 principal = self._authorize_cloud_sync()
                 if principal is None:
@@ -293,10 +387,24 @@ class ResearchOSHandler(BaseHTTPRequestHandler):
                 self._send(HTTPStatus.OK, github_dashboard(repository))
                 return
             self._send(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": path})
-        except (ValueError, GoogleOAuthError, MultiLoginError, MultiLoginRuntimeError) as exc:
+        except (ValueError, KeyError, GoogleOAuthError, MultiLoginError, MultiLoginRuntimeError) as exc:
             self._send(HTTPStatus.BAD_REQUEST, {"error": "bad_request", "detail": str(exc)})
         except GitHubStatusError as exc:
             self._send(HTTPStatus.BAD_GATEWAY, {"error": "github_error", "detail": str(exc)})
+        except Exception as exc:
+            self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "internal_error", "detail": str(exc)})
+
+    def do_PATCH(self) -> None:  # noqa: N802
+        path = urlsplit(self.path).path
+        try:
+            body = self._read_json()
+            if path.startswith("/platform/v1"):
+                status, payload = _management_http().dispatch("PATCH", self.path, self.headers, body)
+                self._send(status, payload)
+                return
+            self._send(HTTPStatus.NOT_FOUND, {"error": "not_found", "path": path})
+        except (ValueError, KeyError) as exc:
+            self._send(HTTPStatus.BAD_REQUEST, {"error": "bad_request", "detail": str(exc)})
         except Exception as exc:
             self._send(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": "internal_error", "detail": str(exc)})
 
@@ -304,17 +412,84 @@ class ResearchOSHandler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         try:
             body = self._read_json()
+            if path.startswith("/platform/v1"):
+                status, payload = _management_http().dispatch("POST", self.path, self.headers, body)
+                self._send(status, payload)
+                return
+            if path == "/v1/platform/work-checkpoints":
+                principal = require_session(self.headers)
+                user_id = str(principal.get("user_id") or "").strip()
+                if not user_id:
+                    raise ValueError("verified session identity is incomplete")
+                payload = dict(body)
+                payload.pop("owner_id", None)
+                record = create_checkpoint(
+                    owner_id=user_id,
+                    task_id=str(payload.get("task_id", "")),
+                    workflow_state=str(payload.get("workflow_state", "")),
+                    current_step=str(payload.get("current_step", "")),
+                    completed_steps=payload.get("completed_steps"),
+                    pending_steps=payload.get("pending_steps"),
+                    evidence_refs=payload.get("evidence_refs"),
+                    deferred_work=payload.get("deferred_work"),
+                    context_refs=payload.get("context_refs"),
+                    next_action=str(payload.get("next_action", "recon")),
+                    source_sha=payload.get("source_sha"),
+                    supersedes=payload.get("supersedes"),
+                )
+                self._send(HTTPStatus.CREATED, {"checkpoint": record, "persisted": True, "chat_is_not_source_of_truth": True})
+                return
+            if path == "/v1/platform/work-checkpoints/resume":
+                principal = require_session(self.headers)
+                user_id = str(principal.get("user_id") or "").strip()
+                if not user_id:
+                    raise ValueError("verified session identity is incomplete")
+                checkpoint_id = str(body.get("checkpoint_id", "")).strip()
+                if not checkpoint_id:
+                    raise ValueError("checkpoint_id is required")
+                self._send(HTTPStatus.OK, resume_checkpoint(user_id, checkpoint_id))
+                return
             if path == "/v1/auth/providers/login":
                 provider = str(body.get("provider", "")).strip().lower()
                 if provider == "google":
                     self._send(HTTPStatus.OK, GoogleIdentityBroker().begin())
                     return
                 redirect_uri = self._multi_login_redirect(provider)
-                _, authorization_url = begin_runtime_login(provider, redirect_uri)
-                self._send(HTTPStatus.OK, {"provider": provider, "authorization_url": authorization_url, "redirect_uri": redirect_uri, "token_storage": "backend_only"})
+                state, authorization_url = begin_runtime_login(provider, redirect_uri)
+                self._send(HTTPStatus.OK, {"provider": provider, "state": state, "authorization_url": authorization_url, "redirect_uri": redirect_uri, "token_storage": "backend_only"})
                 return
             if path == "/v1/auth/google/start":
                 self._send(HTTPStatus.OK, GoogleIdentityBroker().begin())
+                return
+            if path == "/v1/auth/providers/handoff":
+                handoff_state = str(self.headers.get("X-Research-OS-OAuth-State") or "").strip()
+                self._send(HTTPStatus.OK, auth_provider_handoff(handoff_state))
+                return
+            if path == "/v1/auth/developer/assertion":
+                token = extract_session_token(self.headers)
+                try:
+                    principal = verify_session(token)
+                except ValueError as exc:
+                    self._send(
+                        HTTPStatus.UNAUTHORIZED,
+                        {"error": "invalid_session", "detail": str(exc)},
+                    )
+                    return
+                try:
+                    assertion = mint_developer_assertion(principal)
+                except IdentityAssertionError as exc:
+                    message = str(exc)
+                    status = (
+                        HTTPStatus.SERVICE_UNAVAILABLE
+                        if "not configured" in message
+                        else HTTPStatus.UNAUTHORIZED
+                    )
+                    self._send(
+                        status,
+                        {"error": "developer_identity_unavailable", "detail": message},
+                    )
+                    return
+                self._send(HTTPStatus.OK, assertion)
                 return
             if path == "/v1/auth/google/handoff":
                 handoff_code = str(self.headers.get("X-Research-OS-OAuth-State") or "").strip()

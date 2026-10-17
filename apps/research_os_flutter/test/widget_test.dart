@@ -5,7 +5,12 @@ import 'package:research_os_flutter/src/app_shell.dart';
 import 'package:research_os_flutter/src/features/github/github_dashboard_page.dart';
 import 'package:research_os_flutter/src/features/graph/knowledge_graph_page.dart';
 import 'package:research_os_flutter/src/features/home/home_page.dart';
+import 'package:research_os_flutter/src/ui/enterprise_navigation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+String researchNavigationItemsLabel(int index) {
+  return researchNavigationItems.singleWhere((item) => item.index == index).label;
+}
 
 class FakeResearchOSApiClient extends ResearchOSApiClient {
   FakeResearchOSApiClient() : super(baseUrl: 'http://127.0.0.1:8787');
@@ -20,6 +25,20 @@ class FakeResearchOSApiClient extends ResearchOSApiClient {
   Future<Map<String, dynamic>> getProviders() async => <String, dynamic>{
         'active': 'gemini',
         'providers': <String>['mock', 'gemini'],
+      };
+
+  @override
+  Future<Map<String, dynamic>> getAIProviderConnections() async =>
+      <String, dynamic>{
+        'providers': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'provider': 'gemini',
+            'label': 'Gemini',
+            'state': 'CONNECTED',
+            'adapter': 'fake-test-adapter',
+            'api_fallback_available': true,
+          },
+        ],
       };
 
   @override
@@ -126,11 +145,21 @@ Future<void> pumpShell(WidgetTester tester) async {
 
 Future<void> openSidebarDestination(
   WidgetTester tester,
-  String keyName,
+  int index,
 ) async {
-  final finder = find.byKey(Key('v2-nav-$keyName'));
+  final finder = find.byKey(
+    Key('v2-nav-$index'),
+    skipOffstage: false,
+  );
+  await tester.scrollUntilVisible(
+    finder,
+    300,
+    scrollable: find.descendant(
+      of: find.byKey(const Key('desktop-navigation-list-v2')),
+      matching: find.byType(Scrollable),
+    ),
+  );
   expect(finder, findsOneWidget);
-  await tester.ensureVisible(finder);
   await tester.tap(finder);
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 250));
@@ -145,8 +174,14 @@ void main() {
     setDesktopTestSize(tester);
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    var selectedIndex = -1;
     await tester.pumpWidget(
-      MaterialApp(home: HomePage(apiClient: FakeResearchOSApiClient())),
+      MaterialApp(
+        home: HomePage(
+          apiClient: FakeResearchOSApiClient(),
+          onNavigate: (index) => selectedIndex = index,
+        ),
+      ),
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));
@@ -157,6 +192,9 @@ void main() {
     expect(find.text('Online'), findsOneWidget);
     expect(find.text('gemini'), findsOneWidget);
     expect(find.text('Ready'), findsOneWidget);
+    expect(find.text('AI & Agents'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('home-workspace-ai-agents')));
+    expect(selectedIndex, 2);
     expect(tester.takeException(), isNull);
   });
 
@@ -165,7 +203,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await pumpShell(tester);
-    await openSidebarDestination(tester, 'conversation');
+    await openSidebarDestination(tester, 1);
 
     expect(find.text('สนทนา AI'), findsOneWidget);
     expect(find.text('Friend AI • Text + Voice • Local-first'), findsOneWidget);
@@ -182,7 +220,23 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await pumpShell(tester);
 
-    expect(find.byKey(const Key('v2-nav-account')), findsOneWidget);
+    final googleNav = find.byKey(
+      const Key('v2-nav-12'),
+      skipOffstage: false,
+    );
+    await tester.scrollUntilVisible(
+      googleNav,
+      300,
+      scrollable: find.descendant(
+        of: find.byKey(const Key('desktop-navigation-list-v2')),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    expect(googleNav, findsOneWidget);
+    expect(
+      researchNavigationItemsLabel(12),
+      'Google Sign-In',
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -191,7 +245,7 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     await pumpShell(tester);
-    await openSidebarDestination(tester, 'library');
+    await openSidebarDestination(tester, 3);
 
     expect(find.text('Conversation to Knowledge'), findsOneWidget);
     expect(find.textContaining('active'), findsWidgets);
@@ -253,7 +307,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
-    await openSidebarDestination(tester, 'settings');
+    await openSidebarDestination(tester, 9);
 
     expect(find.text('Active Provider'), findsOneWidget);
     expect(find.text('gemini'), findsWidgets);

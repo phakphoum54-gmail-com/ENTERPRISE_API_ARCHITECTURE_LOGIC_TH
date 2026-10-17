@@ -2,6 +2,11 @@ name: Research OS Windows Artifact
 
 on:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact main source SHA to build
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -9,6 +14,7 @@ on:
       - fix/friend-github-tool
     paths:
       - "apps/research_os_flutter/**"
+      - "packages/research_os_contracts/**"
       - ".github/workflows/research-os-windows-artifact.yml"
 
 permissions:
@@ -32,6 +38,23 @@ jobs:
     steps:
       - name: Checkout Research OS desktop source
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+
+      - name: Assert exact Windows source SHA
+        shell: pwsh
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.source_sha }}
+        run: |
+          if ($env:EXPECTED_SOURCE_SHA) {
+            $actual = (git rev-parse HEAD).Trim()
+            if ($actual -ne $env:EXPECTED_SOURCE_SHA) {
+              throw "Windows Artifact source SHA mismatch. Expected '$env:EXPECTED_SOURCE_SHA', actual '$actual'."
+            }
+            Write-Host "RESEARCH_OS_SOURCE_SHA=$actual"
+          } else {
+            Write-Host "RESEARCH_OS_SOURCE_SHA=$(git rev-parse HEAD)"
+          }
 
       - name: Assert this pipeline cannot build Owner Special
         shell: pwsh
@@ -49,6 +72,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install Research OS branding dependency
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check --no-input "Pillow>=10,<13"
+          if ($LASTEXITCODE -ne 0) { throw 'Research OS branding dependency installation failed.' }
+          python -c "from PIL import Image; print('PILLOW_IMPORT=PASS')"
 
       - name: Validate Research OS Flutter source
         working-directory: apps/research_os_flutter
@@ -69,14 +99,13 @@ jobs:
       - name: Isolate Windows Flutter bootstrap workspace
         shell: pwsh
         run: |
-          $source = Join-Path $env:GITHUB_WORKSPACE 'apps/research_os_flutter'
-          $workspace = Join-Path $env:RUNNER_TEMP 'research-os-flutter-windows'
-          if (Test-Path $workspace) { Remove-Item $workspace -Recurse -Force }
-          New-Item -ItemType Directory -Path $workspace | Out-Null
-          Get-ChildItem -Path $source -Force | ForEach-Object {
-            Copy-Item $_.FullName -Destination $workspace -Recurse -Force
-          }
-          Set-Location $workspace
+          $repoWorkspace = Join-Path $env:RUNNER_TEMP 'research-os-flutter-windows'
+          & "$env:GITHUB_WORKSPACE/tools/ci/prepare_flutter_isolated_workspace.ps1" -RepositoryRoot $env:GITHUB_WORKSPACE -AppRelativePath 'apps/research_os_flutter' -WorkspaceRoot $repoWorkspace
+          $scriptExitCode = $LASTEXITCODE
+          if ($scriptExitCode -ne 0) { throw "Isolated Flutter workspace preparation failed with exit code $scriptExitCode." }
+
+          $appWorkspace = Join-Path $repoWorkspace 'apps\research_os_flutter'
+          Set-Location $appWorkspace
           flutter config --enable-windows-desktop
           flutter create --platforms=windows --project-name=$env:APP_PROJECT_NAME .
           if ($LASTEXITCODE -ne 0) { throw 'Isolated Flutter Windows bootstrap failed.' }
@@ -88,8 +117,16 @@ jobs:
       - name: Apply Research OS Windows branding in isolated workspace
         shell: pwsh
         run: |
-          $workspace = Join-Path $env:RUNNER_TEMP 'research-os-flutter-windows'
-          Set-Location $workspace
+          $appWorkspace = Join-Path $env:RUNNER_TEMP 'research-os-flutter-windows\apps\research_os_flutter'
+          if (-not (Test-Path -LiteralPath $appWorkspace -PathType Container)) {
+            throw "Isolated Research OS app workspace is missing: $appWorkspace"
+          }
+          Set-Location $appWorkspace
+
+          & python "$env:GITHUB_WORKSPACE/scripts/apply-research-os-branding.py" --app-root $appWorkspace --platform windows
+          if ($LASTEXITCODE -ne 0) { throw 'Research OS Windows icon generation failed.' }
+          if (-not (Test-Path 'windows\runner\resources\app_icon.ico')) { throw 'Research OS Windows app_icon.ico is missing.' }
+
           $mainCpp = 'windows\runner\main.cpp'
           $mainText = Get-Content $mainCpp -Raw
           $mainText = $mainText -replace 'Create\(L"research_os_flutter"', 'Create(L"Research OS"'
@@ -113,9 +150,15 @@ jobs:
 
       - name: Build isolated Research OS Windows release
         shell: pwsh
+        env:
+          SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
         run: |
-          $workspace = Join-Path $env:RUNNER_TEMP 'research-os-flutter-windows'
-          Set-Location $workspace
+          $appWorkspace = Join-Path $env:RUNNER_TEMP 'research-os-flutter-windows\apps\research_os_flutter'
+          if (-not (Test-Path -LiteralPath $appWorkspace -PathType Container)) {
+            throw "Isolated Research OS app workspace is missing: $appWorkspace"
+          }
+          Set-Location $appWorkspace
+
           flutter pub get
           if ($LASTEXITCODE -ne 0) { throw 'Research OS isolated flutter pub get failed.' }
           flutter build windows --release
@@ -129,29 +172,37 @@ jobs:
           if ($version.InternalName -eq 'research_os_owner_special') { throw 'Owner Special InternalName leaked into Research OS artifact.' }
           if ($version.OriginalFilename -match 'owner_special') { throw 'Owner Special OriginalFilename leaked into Research OS artifact.' }
 
+          $sourceSha = $env:SOURCE_SHA
+          if (-not $sourceSha) { throw 'Research OS source SHA is missing from build environment.' }
+
           $release = $exe.Directory.FullName
           $stage = Join-Path $env:RUNNER_TEMP 'Research-OS-Windows'
           if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
           New-Item -ItemType Directory -Path $stage | Out-Null
-          Copy-Item "$release/*" $stage -Recurse -Force
+          $appStage = Join-Path $stage 'app'
+          New-Item -ItemType Directory -Path $appStage | Out-Null
+          Copy-Item "$release/*" $appStage -Recurse -Force
+          if (-not (Test-Path (Join-Path $appStage $env:APP_EXE_NAME))) { throw 'Research OS executable is not under required app/ path.' }
 
           @"
           Research OS Windows x64
           App: Research OS
           Project: $env:APP_PROJECT_NAME
-          Executable: $env:APP_EXE_NAME
+          Executable: app\\$env:APP_EXE_NAME
           Publisher/Team: $env:APP_COMPANY_NAME
-          Desktop commit: $env:GITHUB_SHA
+          Desktop commit: $sourceSha
           Identity isolation gate: PASS
           UI gate: flutter analyze + full tests + desktop shell test
           Windows bootstrap: isolated temporary workspace only
           Windows branding: Research OS / Research OS Team
+          Windows icon source: assets/branding/research_os_master.webp
+          Windows artifact layout: app\\$env:APP_EXE_NAME
           "@ | Set-Content (Join-Path $stage 'RESEARCH_OS_BUILD_INFO.txt') -Encoding utf8
 
       - name: Launch smoke test
         shell: pwsh
         run: |
-          $exe = Get-ChildItem -Path "$env:RUNNER_TEMP/Research-OS-Windows" -Filter $env:APP_EXE_NAME -File | Select-Object -First 1
+          $exe = Get-ChildItem -Path "$env:RUNNER_TEMP/Research-OS-Windows/app" -Filter $env:APP_EXE_NAME -File | Select-Object -First 1
           if (-not $exe) { throw 'Research OS staged executable missing.' }
           $app = Start-Process $exe.FullName -PassThru
           Start-Sleep -Seconds 5
@@ -176,7 +227,7 @@ jobs:
       - name: Upload Research OS Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Research-OS-Windows-x64-${{ github.sha }}
+          name: Research-OS-Windows-x64-${{ inputs.source_sha || github.sha }}
           path: |
             ${{ runner.temp }}/Research-OS-Windows-x64.zip
             ${{ runner.temp }}/Research-OS-Windows-x64.zip.sha256

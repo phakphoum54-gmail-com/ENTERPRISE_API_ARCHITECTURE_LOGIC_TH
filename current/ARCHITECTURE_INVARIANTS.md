@@ -39,6 +39,22 @@ This document defines architectural rules that must remain true across Friend Se
 - **INV-019 — Stacked dependency order:** Stacked PRs must merge in dependency order: `#250 → #251 → #252 → #253 → #254 → #255` unless the dependency graph is explicitly changed and revalidated.
 - **INV-020 — Failure isolation:** Infrastructure/validator fixes should remain independently reviewable when they are not part of the feature boundary they protect.
 
+## Platform Governance
+
+- **INV-021 — One canonical registry per domain:** Governance may reference canonical registries, but must not create competing registries or authorities.
+- **INV-022 — No hard-coded surface cardinality:** Cross-platform surface validation derives identity and cardinality from canonical sources.
+- **INV-023 — Change impact is explicit:** Governed changes identify affected components, contracts, risk, blast radius, and required gates.
+- **INV-024 — Evidence coverage is attributable:** Completeness requires implementation, test, contract, evidence, provenance, and applicable gate coverage.
+- **INV-025 — Governance is non-authoritative:** Governance validators may fail closed and report evidence, but cannot execute, authorize, approve, merge, or release.
+
+## Self-Reconciliation
+
+- **INV-026 — Recon before repair:** Structural repair must resolve the target against canonical repository state before mutation.
+- **INV-027 — Deterministic repair only:** Automatic repair requires exactly one safe target and a minimal bounded replacement.
+- **INV-028 — Protected-core fail closed:** Authorization, owner privilege, evidence/audit integrity, security boundaries, and release authority cannot be auto-repaired.
+- **INV-029 — Post-repair reconciliation:** Every applied repair must be reconciled and validated again before promotion.
+- **INV-030 — Repair reversibility:** Automatic repair must be performed in an isolated repair context with snapshot/rollback evidence.
+
 ## Enforcement Principle
 
 Each invariant should be enforced by the narrowest appropriate mechanism:

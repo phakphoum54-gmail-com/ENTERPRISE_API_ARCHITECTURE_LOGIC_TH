@@ -2,6 +2,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:research_os_flutter/src/api/research_os_api_client.dart';
 import 'package:research_os_flutter/src/app_shell.dart';
+import 'package:research_os_flutter/src/ui/enterprise_navigation.dart';
 
 class DesktopShellApiClient extends ResearchOSApiClient {
   DesktopShellApiClient()
@@ -53,6 +54,31 @@ class DesktopShellApiClient extends ResearchOSApiClient {
 
 void main() {
   testWidgets(
+    'narrow iOS host still renders the canonical shared product UI',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ResearchOSAppShell(
+            apiClient: DesktopShellApiClient(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+
+      expect(find.byKey(const Key('research-os-sidebar-v2')), findsOneWidget);
+      expect(find.byKey(const Key('desktop-content-pane')), findsOneWidget);
+      expect(find.byType(Drawer), findsNothing);
+      expect(find.byKey(const Key('desktop-status-bar')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
     'desktop shell shows the futuristic Research OS sidebar',
     (tester) async {
       tester.view.physicalSize = const Size(1440, 1000);
@@ -88,23 +114,23 @@ void main() {
 
       // Sidebar navigation.
       expect(
-        find.byKey(const Key('v2-nav-search')),
+        find.byKey(const Key('v2-nav-0')),
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('v2-nav-conversation')),
+        find.byKey(const Key('v2-nav-1')),
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('v2-nav-friend-connect')),
+        find.byKey(const Key('v2-nav-13')),
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('v2-nav-settings')),
+        find.byKey(const Key('v2-nav-9')),
         findsOneWidget,
       );
       expect(
-        find.byKey(const Key('v2-nav-account')),
+        find.byKey(const Key('v2-nav-12')),
         findsOneWidget,
       );
 
@@ -137,8 +163,8 @@ void main() {
       // Expanded sidebar labels.
       expect(find.text('WORKSPACE'), findsOneWidget);
       expect(find.text('ACCOUNT'), findsOneWidget);
-      expect(find.text('Search'), findsOneWidget);
-      expect(find.text('New chat'), findsOneWidget);
+      expect(find.text('Home'), findsOneWidget);
+      expect(find.text('AI Chat'), findsOneWidget);
       expect(find.text('Settings'), findsOneWidget);
       expect(find.text('AI Operating Workspace'), findsOneWidget);
       expect(find.text('Friend Connect'), findsAtLeastNWidgets(1));
@@ -146,7 +172,7 @@ void main() {
       // Friend Connect workspace.
       await tester.tap(
         find.byKey(
-          const Key('v2-nav-friend-connect'),
+          const Key('v2-nav-13'),
         ),
       );
 
@@ -173,7 +199,7 @@ void main() {
       // Open Conversation.
       await tester.tap(
         find.byKey(
-          const Key('v2-nav-conversation'),
+          const Key('v2-nav-1'),
         ),
       );
 
@@ -202,6 +228,19 @@ void main() {
         findsOneWidget,
       );
 
+      // Every registry destination must resolve to a real page slot.
+      for (final item in researchNavigationItems) {
+        await tester.tap(
+          find.byKey(Key('v2-nav-${item.index}')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(
+          tester.takeException(),
+          isNull,
+          reason: 'Navigation index ${item.index} (${item.label}) must map to a page.',
+        );
+      }
       // No Flutter exception.
       expect(
         tester.takeException(),

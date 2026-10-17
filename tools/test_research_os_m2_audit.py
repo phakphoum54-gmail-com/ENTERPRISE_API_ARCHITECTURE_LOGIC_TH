@@ -1,0 +1,79 @@
+import unittest
+from tools.research_os_m2_audit import build_index
+from tools.research_os_semantic_binding import resolve_semantic_binding
+
+class M2AuditIndexTests(unittest.TestCase):
+ def test_index_is_source_pinned_and_integrity_complete(self):
+  index=build_index()
+  self.assertRegex(index["source_sha"],r"^[0-9a-f]{40}$")
+  self.assertGreater(index["inventory"]["files"],0)
+  self.assertTrue(index["integrity"]["test_case_inventory"])
+  self.assertGreater(index["inventory"]["test_case_inventory"]["discovered_test_cases"],0)
+  self.assertTrue(all(index["integrity"].values()))
+ def test_expected_capabilities_are_discoverable(self):
+  rows={r["path"]:r for r in build_index()["files"]}
+  self.assertIn("current/RESEARCH_OS_UNIFIED_FINAL_GATE.yml",rows)
+  self.assertIn("tools/research_os_m2_audit.py",rows)
+  self.assertIn("apps/research_os_flutter/lib/src/features/control_center/native_control_center_page.dart",rows)
+  self.assertIn("final_gate",rows["current/RESEARCH_OS_UNIFIED_FINAL_GATE.yml"]["capabilities"])
+ def test_relationship_graph_is_explicit(self):
+  g=build_index()
+  self.assertTrue(any(e["relation"]=="VERIFIED_BY" and e["from"].startswith("CONTRACT:") and e["to"].startswith("TEST:") for e in g["edges"]))
+  self.assertTrue(g["integrity"]["final_gate_node"])
+  self.assertIn("FINAL_GATE:UNIFIED",{n["id"] for n in g["nodes"]})
+  self.assertTrue(any(e["relation"]=="BINDS_TO" and e["to"]=="FINAL_GATE:UNIFIED" for e in g["edges"]))
+  self.assertTrue(g["integrity"]["semantic_binding_integrity"])
+  self.assertTrue(any(e["relation"]=="BOUND_TO" and e["from"].startswith("CONTRACT:") and e["to"].startswith("CONTRACT:") for e in g["edges"]))
+ def test_contract_implementation_integrity_is_explicit(self):
+  g=build_index()
+  self.assertIn("contract_implementation_linkage",g["integrity"])
+  self.assertTrue(g["integrity"]["contract_implementation_linkage"])
+  implementation_edges=[e for e in g["edges"] if e["from"].startswith("IMPLEMENTATION:") and e["relation"]=="REFERENCES" and e["to"].startswith("CONTRACT:")]
+  self.assertTrue(implementation_edges)
+  self.assertTrue(g["integrity"]["contract_test_linkage"])
+  self.assertTrue(g["integrity"]["required_contract_inventory"])
+  self.assertTrue(g["integrity"]["required_workflow_inventory"])
+  self.assertGreater(g["inventory"]["required_contracts"],0)
+  self.assertGreater(g["inventory"]["required_workflows"],0)
+  test_edges=[e for e in g["edges"] if e["from"].startswith("CONTRACT:") and e["relation"]=="VERIFIED_BY" and e["to"].startswith("TEST:")]
+  self.assertTrue(test_edges)
+  semantic_relations={"VERIFIED_BY","ENFORCED_BY","DISPATCHED_BY","SUPPORTED_BY","BOUND_TO"}
+  self.assertTrue(any(e["relation"] in semantic_relations for e in g["edges"]))
+
+ def test_query_returns_nodes_and_edges(self):
+  g=build_index()
+  q="runner"
+  nodes=[n for n in g["nodes"] if q in n["id"].lower() or q in (n.get("path") or "").lower()]
+  self.assertTrue(nodes)
+
+
+ def test_canonical_semantic_binding_is_fail_closed(self):
+  unique=resolve_semantic_binding(
+   target="current/example_contract.json",
+   relation="ENFORCED_BY",
+   candidates=["tools/example_impl.py","tools/other.py"],
+   texts={
+    "current/example_contract.json": '"contract_id": "example"',
+    "tools/example_impl.py": '"contract_id": "example"',
+    "tools/other.py": '"contract_id": "other"',
+   },
+  )
+  self.assertEqual(unique.targets, ("tools/example_impl.py",))
+  self.assertFalse(unique.ambiguous)
+  ambiguous=resolve_semantic_binding(
+   target="current/example_contract.json",
+   relation="ENFORCED_BY",
+   candidates=["tools/example_impl.py","tools/example_impl_alt.py"],
+   texts={
+    "current/example_contract.json": '"contract_id": "example"',
+    "tools/example_impl.py": '"contract_id": "example"',
+    "tools/example_impl_alt.py": '"contract_id": "example"',
+   },
+  )
+  self.assertTrue(ambiguous.ambiguous)
+  self.assertEqual(
+   ambiguous.candidates,
+   ("tools/example_impl.py","tools/example_impl_alt.py"),
+  )
+
+if __name__=="__main__": unittest.main()

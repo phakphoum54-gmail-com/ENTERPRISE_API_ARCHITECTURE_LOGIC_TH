@@ -1,9 +1,9 @@
 name: AEOS Source-Level Test
 
 on:
-  # Trusted workflow definition is taken from main. Verification checks the
-  # exact PR head rather than executing workflow definitions from the PR.
-  pull_request_target:
+  # Run PR source checks in the restricted pull_request context.
+  # Never execute fork-controlled source in pull_request_target.
+  pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'current/AEOS_ASSURANCE_CHECK_REGISTRY.json'
@@ -32,6 +32,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v6

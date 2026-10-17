@@ -1,8 +1,26 @@
 import unittest
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
 from tools.research_os_m2_audit import build_index
 from tools.research_os_semantic_binding import resolve_semantic_binding
 
 class M2AuditIndexTests(unittest.TestCase):
+ def test_direct_script_execution_creates_source_pinned_artifacts(self):
+  root = Path(__file__).resolve().parents[1]
+  with tempfile.TemporaryDirectory() as temp_dir:
+   output = Path(temp_dir) / "m2_audit_index.json"
+   summary = Path(temp_dir) / "m2_audit_index_summary.txt"
+   result = subprocess.run(
+    [sys.executable, str(root / "tools/research_os_m2_audit.py"),
+     "--output", str(output), "--summary", str(summary)],
+    cwd=root, text=True, capture_output=True, check=False,
+   )
+   self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+   self.assertGreater(output.stat().st_size, 0)
+   self.assertGreater(summary.stat().st_size, 0)
+   self.assertIn("M2_AUDIT_INDEX=PASS", summary.read_text(encoding="utf-8"))
  def test_index_is_source_pinned_and_integrity_complete(self):
   index=build_index()
   self.assertRegex(index["source_sha"],r"^[0-9a-f]{40}$")

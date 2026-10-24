@@ -30,6 +30,7 @@ class ReconSyncCenterTests(unittest.TestCase):
     def test_exit_code_and_busy_state_are_observed(self):
         self.assertIn("ex.ExitCode", self.html)
         self.assertIn("function setBusy(value)", self.html)
+        self.assertIn("GetParentFolderName(fso.GetParentFolderName(fso.GetParentFolderName(p)))", self.html)
         self.assertIn("if (result.code !== 0)", self.html)
 
     def test_contract_documents_non_destructive_boundaries(self):

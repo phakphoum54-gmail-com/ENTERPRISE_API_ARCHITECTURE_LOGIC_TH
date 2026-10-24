@@ -34,7 +34,7 @@ function setBusy(value) {
 function enginePath() {
   var fso = new ActiveXObject("Scripting.FileSystemObject");
   var p = decodeURIComponent(location.pathname).replace(/^\//, "").replace(/\//g, "\\");
-  var root = fso.GetParentFolderName(fso.GetParentFolderName(p));
+  var root = fso.GetParentFolderName(fso.GetParentFolderName(fso.GetParentFolderName(p)));
   return fso.BuildPath(root, "platform\\recon-sync\\recon-sync-engine.ps1");
 }
 function invokeEngine(cmd) {

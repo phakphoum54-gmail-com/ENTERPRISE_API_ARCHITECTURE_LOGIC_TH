@@ -74,7 +74,7 @@ function preflight() {
   try {
     document.getElementById("log").innerText = "Preflight (no sync; engine records evidence): status then canonical verification...";
     var status = invokeEngine("status");
-    appendResult("READ-ONLY STATUS", status);
+    appendResult("STATUS (MAY WRITE EVIDENCE)", status);
     if (status.code !== 0) {
       document.getElementById("log").innerText += "\nPREFLIGHT: HOLD — status failed.";
       return;

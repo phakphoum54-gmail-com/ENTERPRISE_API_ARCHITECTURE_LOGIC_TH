@@ -39,6 +39,12 @@ jobs:
           actual="$(git rev-parse HEAD)"
           test "$actual" = "$EXPECTED_SHA"
 
+      - name: Test Recon-Sync button safety contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest tools.test_recon_sync_center -v
+
       - name: Recon Git tree and workflow boundaries
         shell: bash
         env:

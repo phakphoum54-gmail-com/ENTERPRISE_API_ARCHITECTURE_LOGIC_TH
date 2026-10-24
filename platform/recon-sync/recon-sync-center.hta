@@ -1,1 +1,94 @@
-<html><head><title>RECON-SYNC CENTER</title><HTA:APPLICATION ID="ReconSync" APPLICATIONNAME="Recon-Sync Center" BORDER="thin" CAPTION="yes" SHOWINTASKBAR="yes" SINGLEINSTANCE="yes"><style>body{font:14px Segoe UI;margin:24px;background:#111;color:#eee}button{padding:12px 18px;margin:6px;border:0;border-radius:8px}pre{background:#181818;padding:16px;border-radius:10px;min-height:280px;white-space:pre-wrap}</style></head><body><h1>RECON-SYNC CENTER</h1><div>Canonical control plane • fail-closed • provenance preserved</div><p><button onclick="run('sync')">RECON-SYNC</button><button onclick="run('audit')">AUDIT PLATFORM</button><button onclick="run('verify')">VERIFY</button><button onclick="run('evidence')">EVIDENCE</button><button onclick="run('status')">STATUS</button><button onclick="run('recover')">RECOVER</button></p><pre id="log">Ready.</pre><script>function run(cmd){var shell=new ActiveXObject("WScript.Shell");var fso=new ActiveXObject("Scripting.FileSystemObject");var p=decodeURIComponent(location.pathname).replace(/^\//,"").replace(/\//g,"\\");var root=fso.GetParentFolderName(fso.GetParentFolderName(p));var engine=fso.BuildPath(root,"platform\\recon-sync\\recon-sync-engine.ps1");var ex=shell.Exec('powershell.exe -NoProfile -ExecutionPolicy Bypass -File "'+engine+'" -Command '+cmd);document.getElementById("log").innerText=ex.StdOut.ReadAll();}</script></body></html>
+<html>
+<head>
+  <title>RECON-SYNC CENTER</title>
+  <HTA:APPLICATION ID="ReconSync" APPLICATIONNAME="Recon-Sync Center" BORDER="thin" CAPTION="yes" SHOWINTASKBAR="yes" SINGLEINSTANCE="yes">
+  <style>
+    body{font:14px Segoe UI;margin:24px;background:#111;color:#eee}
+    button{padding:12px 18px;margin:6px;border:0;border-radius:8px;cursor:pointer}
+    button:disabled{opacity:.55;cursor:wait}
+    .notice{border:1px solid #8b6b27;background:#211c10;color:#f2d58a;padding:12px;border-radius:8px;max-width:900px}
+    pre{background:#181818;padding:16px;border-radius:10px;min-height:280px;white-space:pre-wrap;overflow:auto}
+  </style>
+</head>
+<body>
+  <h1>RECON-SYNC CENTER</h1>
+  <div>Canonical Git control plane · fail-closed · provenance preserved</div>
+  <p class="notice"><b>Scope:</b> RECON-SYNC fetches the canonical Git main and creates a detached local worktree. It does <b>not</b> synchronize Google Drive files or verify Google Drive quota/permissions. No overwrite, reset, clean, force-push, or deletion is performed by this button.</p>
+  <p>
+    <button id="preflight-button" onclick="preflight()">PREFLIGHT (NO SYNC; WRITES EVIDENCE)</button>
+    <button id="sync-button" onclick="run('sync', true)">SYNC CANONICAL GIT</button>
+    <button onclick="run('audit', false)">AUDIT PLATFORM</button>
+    <button onclick="run('verify', false)">VERIFY CANONICAL</button>
+    <button onclick="run('evidence', false)">WRITE EVIDENCE</button>
+    <button onclick="run('status', false)">STATUS</button>
+    <button onclick="run('recover', false)">RECOVER EVIDENCE</button>
+  </p>
+  <pre id="log">Ready. Run PREFLIGHT before synchronization.</pre>
+<script>
+var busy = false;
+function setBusy(value) {
+  busy = value;
+  var buttons = document.getElementsByTagName("button");
+  for (var i = 0; i < buttons.length; i++) buttons[i].disabled = value;
+}
+function enginePath() {
+  var fso = new ActiveXObject("Scripting.FileSystemObject");
+  var p = decodeURIComponent(location.pathname).replace(/^\//, "").replace(/\//g, "\\");
+  var root = fso.GetParentFolderName(fso.GetParentFolderName(fso.GetParentFolderName(p)));
+  return fso.BuildPath(root, "platform\\recon-sync\\recon-sync-engine.ps1");
+}
+function invokeEngine(cmd) {
+  var shell = new ActiveXObject("WScript.Shell");
+  var engine = enginePath().replace(/'/g, "''");
+  var ps = "& { & '" + engine + "' -Command '" + cmd + "' *>&1 }";
+  var ex = shell.Exec('powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "' + ps + '"');
+  var output = ex.StdOut.ReadAll();
+  var code = ex.ExitCode;
+  return { output: output, code: code };
+}
+function appendResult(label, result) {
+  document.getElementById("log").innerText += "\n\n=== " + label + " (exit " + result.code + ") ===\n" + result.output;
+}
+function run(cmd, needsConfirmation) {
+  if (busy) return;
+  if (needsConfirmation && !window.confirm("Run canonical Git reconciliation?\n\nThis fetches canonical/main and creates a detached worktree. It is NOT Google Drive sync. Dirty work is preserved; no reset/clean/force-push/delete is intended. Continue?")) {
+    document.getElementById("log").innerText = "SYNC cancelled. No command was run.";
+    return;
+  }
+  setBusy(true);
+  try {
+    document.getElementById("log").innerText = "Running " + cmd + "...";
+    var result = invokeEngine(cmd);
+    appendResult(cmd, result);
+    if (result.code !== 0) document.getElementById("log").innerText += "\nRESULT: FAIL — inspect output before retrying.";
+    else document.getElementById("log").innerText += "\nRESULT: command exited successfully; inspect evidence and status before treating as complete.";
+  } catch (e) {
+    document.getElementById("log").innerText += "\nRESULT: FAIL — " + e.message;
+  } finally {
+    setBusy(false);
+  }
+}
+function preflight() {
+  if (busy) return;
+  setBusy(true);
+  try {
+    document.getElementById("log").innerText = "Preflight (no sync; engine records evidence): status then canonical verification...";
+    var status = invokeEngine("status");
+    appendResult("STATUS (MAY WRITE EVIDENCE)", status);
+    if (status.code !== 0) {
+      document.getElementById("log").innerText += "\nPREFLIGHT: HOLD — status failed.";
+      return;
+    }
+    var verify = invokeEngine("verify");
+    appendResult("CANONICAL VERIFICATION", verify);
+    if (verify.code !== 0) document.getElementById("log").innerText += "\nPREFLIGHT: HOLD — canonical verification failed.";
+    else document.getElementById("log").innerText += "\nPREFLIGHT: Git checks completed. Google Drive permissions and quota remain UNVERIFIED.";
+  } catch (e) {
+    document.getElementById("log").innerText += "\nPREFLIGHT: FAIL — " + e.message;
+  } finally {
+    setBusy(false);
+  }
+}
+</script>
+</body>
+</html>

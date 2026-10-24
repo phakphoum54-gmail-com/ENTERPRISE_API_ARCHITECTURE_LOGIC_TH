@@ -15,7 +15,7 @@
   <div>Canonical Git control plane · fail-closed · provenance preserved</div>
   <p class="notice"><b>Scope:</b> RECON-SYNC fetches the canonical Git main and creates a detached local worktree. It does <b>not</b> synchronize Google Drive files or verify Google Drive quota/permissions. No overwrite, reset, clean, force-push, or deletion is performed by this button.</p>
   <p>
-    <button id="preflight-button" onclick="preflight()">PREFLIGHT (READ ONLY)</button>
+    <button id="preflight-button" onclick="preflight()">PREFLIGHT (NO SYNC; WRITES EVIDENCE)</button>
     <button id="sync-button" onclick="run('sync', true)">SYNC CANONICAL GIT</button>
     <button onclick="run('audit', false)">AUDIT PLATFORM</button>
     <button onclick="run('verify', false)">VERIFY CANONICAL</button>
@@ -72,7 +72,7 @@ function preflight() {
   if (busy) return;
   setBusy(true);
   try {
-    document.getElementById("log").innerText = "Read-only preflight: status then canonical verification...";
+    document.getElementById("log").innerText = "Preflight (no sync; engine records evidence): status then canonical verification...";
     var status = invokeEngine("status");
     appendResult("READ-ONLY STATUS", status);
     if (status.code !== 0) {

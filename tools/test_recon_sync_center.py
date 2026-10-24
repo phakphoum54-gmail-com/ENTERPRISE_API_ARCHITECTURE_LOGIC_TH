@@ -19,6 +19,7 @@ class ReconSyncCenterTests(unittest.TestCase):
 
     def test_preflight_is_read_only_and_checks_status_then_verify(self):
         self.assertIn('onclick="preflight()"', self.html)
+        self.assertIn("PREFLIGHT (NO SYNC; WRITES EVIDENCE)", self.html)
         self.assertIn('invokeEngine("status")', self.html)
         self.assertIn('invokeEngine("verify")', self.html)
 

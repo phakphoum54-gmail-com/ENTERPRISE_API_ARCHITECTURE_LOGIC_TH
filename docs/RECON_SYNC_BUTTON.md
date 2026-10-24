@@ -14,7 +14,7 @@ Add an explicit, confirmation-gated button to the existing Windows HTA control c
 
 ## Button behavior
 
-1. **PREFLIGHT (READ ONLY)** runs `status`, then `verify`; a failed command yields HOLD/FAIL in the UI.
+1. **PREFLIGHT (NO SYNC; WRITES EVIDENCE)** runs `status`, then `verify`; the existing engine writes evidence records for these commands, so this is not filesystem-read-only. A failed command yields HOLD/FAIL in the UI.
 2. **SYNC CANONICAL GIT** requires an explicit confirmation and then invokes the existing `sync` command.
 3. The UI displays the combined PowerShell output and process exit code and disables controls while a command is running.
 4. The UI explicitly states that Google Drive is not synchronized and Drive permissions/quota are not verified.

@@ -429,6 +429,15 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ],
 
+                        if (_error && !_loading) ...<Widget>[
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: _retryLoadingProviders,
+                            icon: const Icon(Icons.refresh),
+                            label: const Text('ลองโหลดอีกครั้ง'),
+                          ),
+                        ],
+
                         // Keep provider availability out of the primary
                         // surface. The dropdown remains the single LOGIN
                         // entry point; provider details stay folded.
